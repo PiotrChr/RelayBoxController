@@ -7,15 +7,6 @@
 #define RELAY_PIN_3 2
 #define RELAY_PIN_4 15
 
-#define BUTTON_ENABLE_1_PIN 36
-#define BUTTON_DISABLE_1_PIN 39
-#define BUTTON_ENABLE_2_PIN 34
-#define BUTTON_DISABLE_2_PIN 35
-#define BUTTON_ENABLE_3_PIN 32
-#define BUTTON_DISABLE_3_PIN 33
-#define BUTTON_ENABLE_4_PIN 4
-#define BUTTON_DISABLE_4_PIN 0
-
 unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 150;
 unsigned long lastButtonLockTime = millis();
@@ -28,18 +19,20 @@ const unsigned long buttonLockTime = 3000;
 #define SCREEN_ADDRESS 0x3C /// < See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 
 struct Relay {
-  String name;
+  char name[50];
   int pin;
   int state;
   int btnOnPin;
   int btnOffPin;
-  };
+  int btnOnState;
+  int btnOffState;
+};
 
 Relay relays [4] = {
-  Relay{"Circuit 1", RELAY_PIN_1, HIGH, BUTTON_ENABLE_1_PIN, BUTTON_DISABLE_1_PIN},
-  Relay{"Circuit 2", RELAY_PIN_2, HIGH, BUTTON_ENABLE_2_PIN, BUTTON_DISABLE_2_PIN},
-  Relay{"Circuit 3", RELAY_PIN_3, HIGH, BUTTON_ENABLE_3_PIN, BUTTON_DISABLE_3_PIN},
-  Relay{"Circuit 4", RELAY_PIN_4, HIGH, BUTTON_ENABLE_4_PIN, BUTTON_DISABLE_4_PIN}
+  {"Circuit 1", 16, HIGH, 36, 39, HIGH, HIGH},
+  {"Circuit 2", 17, HIGH, 34, 35, HIGH, HIGH},
+  {"Circuit 3", 2, HIGH, 32, 33, HIGH, HIGH},
+  {"Circuit 4", 15, HIGH, 4, 0, HIGH, HIGH}
  };
 
 AsyncWebServer server(80);
@@ -50,11 +43,11 @@ AsyncEventSource events("/events"); // event source (Server-Sent events)
 const char* wifiConfigFile = "/wifi.txt";
 const char* wifiConfigFileReplacement = "/wifi_old.txt";
 
-String fileContents;
+// String fileContents;
 IPAddress localIp;
 
-String wifiSsid = "";
-String wifiPassword = "";
+char wifiSsid[50] = "";
+char wifiPassword[50] = "";
 
 #define EEPROM_SIZE 512
 #define SSID_EEPROM_INDEX 0
@@ -74,7 +67,7 @@ typedef std::function<void()> Job;
 typedef bool (*RunCondition)();
 
 struct Task {
-  String name;
+  const char* name;
   unsigned long dueDate;
   bool finished;
   Job job;
@@ -91,11 +84,13 @@ void setup() {
       ;
     }
   }
-  
   delay(100);
 
   setupRelays();
+
   setupDisplay();
+  delay(3000);
+
   setupButtons();
 
   displayStatus("Reading SD...");
@@ -126,7 +121,7 @@ void setup() {
     delay(1000);
 
     char wifiText[200] = "Connecting to: ";
-    strcat (wifiText, wifiSsid.c_str());
+    strcat (wifiText, wifiSsid);
     displayStatus(wifiText);
     wifiConnect();
 
@@ -162,14 +157,11 @@ void openCircuit(unsigned int circuit, String message) {
 }
 
 void setupButtons() {
-  pinMode(BUTTON_ENABLE_1_PIN, INPUT);
-  pinMode(BUTTON_DISABLE_1_PIN, INPUT);
-  pinMode(BUTTON_ENABLE_2_PIN, INPUT);
-  pinMode(BUTTON_DISABLE_2_PIN, INPUT);
-  pinMode(BUTTON_ENABLE_3_PIN, INPUT);
-  pinMode(BUTTON_DISABLE_3_PIN, INPUT);
-  pinMode(BUTTON_ENABLE_4_PIN, INPUT);
-  pinMode(BUTTON_DISABLE_4_PIN, INPUT);
+  for (auto& relay : relays) {
+    pinMode(relay.btnOnPin, INPUT);
+    pinMode(relay.btnOffPin, INPUT);
+  }
+  
 }
 
 void setupWifi() {
@@ -185,19 +177,15 @@ void setupDisplay() {
 
   display.clearDisplay();
   display.display();
-
-  delay(5000); // Pause for 2 seconds
-  
 }
 
 void setupRelays() {
-  pinMode(RELAY_PIN_1, OUTPUT);
-  pinMode(RELAY_PIN_2, OUTPUT);
-  pinMode(RELAY_PIN_3, OUTPUT);
-  pinMode(RELAY_PIN_4, OUTPUT);
+  for (auto& relay : relays) {
+    pinMode(relay.pin, OUTPUT);
+  }
 }
 
-void displayStatus(const String action) {
+void displayStatus(const char* action) {
   display.clearDisplay();
 
   display.setTextSize(1);             
@@ -206,7 +194,7 @@ void displayStatus(const String action) {
   display.println(localIp);
   if (action != "") {
     display.setCursor(0,15);         
-    display.println(action.c_str());
+    display.println(action);
     }
   
   display.display();
@@ -215,12 +203,12 @@ void displayStatus(const String action) {
   } 
 
 void checkRelays() {
-  for (int i=0; i<sizeof(relays)/sizeof(relays[0]); i++) {
-    digitalWrite(relays[i].pin, relays[i].state);
+  for (auto& relay : relays) {
+    digitalWrite(relay.pin, relay.state);
   }
 }
 
-void addTask(String name, unsigned long dueDate, std::function<void()> job, bool completionCondition ()) {
+void addTask(const char* name, unsigned long dueDate, std::function<void()> job, bool completionCondition ()) {
   struct Task task = {name, dueDate, false, job, completionCondition};
   tasks.push(task);
 }
@@ -232,7 +220,7 @@ void wifiConnect() {
     Serial.println(wifiPassword);
   }
 
-  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+  WiFi.begin(wifiSsid, wifiPassword);
   unsigned long currentMillis = millis();
   
   while (WiFi.status() != WL_CONNECTED) {
@@ -272,10 +260,8 @@ void performTasks() {
   for (int i = 0; i < tasks.size(); i++) {
     if (!tasks[i].finished && tasks[i].dueDate < millis() && tasks[i].runCondition() == true) {
       struct Task task = tasks.shift();
-      char taskName[100];
-      task.name.toCharArray(taskName, sizeof(taskName));
-      displayStatus(taskName);
-      Serial.println(task.name);
+      displayStatus(task.name);
+      if (LOG) Serial.println(task.name);
       task.job();
       task.finished = true;
     } else {
@@ -305,6 +291,16 @@ void checkButton(int buttonPin, std::function<void(unsigned long)> handler, unsi
 
   if ((now - lastDebounceTime) > debounceDelay)
   {
+    lastDebounceTime = now;
+    
+    if (LOG) {
+      Serial.println("Reading:");
+      Serial.println(reading); 
+
+      Serial.println("Button state:");
+      Serial.println(*buttonState);
+    }
+
     if (reading != *buttonState)
     {
       if (LOG) Serial.println("Got button readout for: " + message);
@@ -322,7 +318,7 @@ void checkButton(int buttonPin, std::function<void(unsigned long)> handler, unsi
 
 void checkButtons()
 {
-  for (unsigned int i = 0; i < sizeof(relays); i++)
+  for (unsigned int i = 0; i < sizeof(relays)/sizeof(Relay); i++)
   {
     checkButton(
       relays[i].btnOnPin,
@@ -330,7 +326,7 @@ void checkButtons()
         addTask("Enable", initTime, [i](){ openCircuit(i, "Enabling circuit"); },[](){ return isIdle(); });
       },
       &lastButtonLockTime,
-      &relays[i].state,
+      &relays[i].btnOnState,
       "Enabling circuit"
     );
 
@@ -340,7 +336,7 @@ void checkButtons()
         addTask("Disable", initTime, [i](){ closeCircuit(i, "Disabling circuit"); },[](){ return isIdle(); });
        },
       &lastButtonLockTime,
-      &relays[i].state,
+      &relays[i].btnOffState,
       "Disabling circuit"
     );
   }
@@ -352,8 +348,8 @@ bool isIdle() {
 }
 
 void restoreSettingsFromEEPROM() {
-  wifiSsid = readStringFromEEPROM(SSID_EEPROM_INDEX);
-  wifiPassword = readStringFromEEPROM(PASSWORD_EEPROM_INDEX);
+  readStringFromEEPROM(SSID_EEPROM_INDEX, wifiSsid, sizeof(wifiSsid));
+  readStringFromEEPROM(PASSWORD_EEPROM_INDEX, wifiPassword, sizeof(wifiPassword));
 }
 
 void saveSettingsToEEPROM() {
@@ -361,9 +357,9 @@ void saveSettingsToEEPROM() {
   writeStringToEEPROM(PASSWORD_EEPROM_INDEX, wifiPassword);
 }
 
-void writeStringToEEPROM(int addrOffset, const String &strToWrite)
+void writeStringToEEPROM(int addrOffset, const char* strToWrite)
 {
-  byte len = strToWrite.length();
+  byte len = strlen(strToWrite);
   EEPROM.write(addrOffset, len);
   for (int i = 0; i < len; i++)
   {
@@ -373,22 +369,21 @@ void writeStringToEEPROM(int addrOffset, const String &strToWrite)
   EEPROM.commit();
 }
 
-String readStringFromEEPROM(int addrOffset)
+void readStringFromEEPROM(int addrOffset, char* output, size_t maxLen)
 {
   int newStrLen = EEPROM.read(addrOffset);
-  char data[newStrLen + 1];
+  newStrLen = newStrLen < maxLen ? newStrLen : maxLen - 1; // prevent buffer overflow
 
-  if (newStrLen == 0) {
-    return "";
+  if (newStrLen <= 0) {
+    output[0] = '\0';
+    return;
   }
   
   for (int i = 0; i < newStrLen; i++)
   {
-    data[i] = EEPROM.read(addrOffset + 1 + i);
+    output[i] = EEPROM.read(addrOffset + 1 + i);
   }
-  data[newStrLen] = '\0';
-  
-  return String(data);
+  output[newStrLen] = '\0';
 }
 
 bool getWifiConfigFromSD() {
@@ -406,7 +401,8 @@ bool getWifiConfigFromSD() {
     if (LOG) Serial.println("No SD card attached");
     return false;
   }
-
+  
+  String fileContents;
   readFile(SD, wifiConfigFile, &fileContents);
 
   if (fileContents[0] == '\0')
@@ -416,10 +412,10 @@ bool getWifiConfigFromSD() {
 
   SD.end();
   
-  return scanStringAndSetConfig(fileContents);
+  return scanStringAndSetConfig(fileContents.c_str());
 }
 
-void readFile(fs::FS &fs, const char *path, String *contents)
+void readFile(fs::FS &fs, const char *path, String* contents)
 {
   if (LOG) Serial.printf("Reading file: %s\n", path);
 
@@ -443,14 +439,13 @@ void readFile(fs::FS &fs, const char *path, String *contents)
   if (LOG) Serial.print("Finished reading");
 }
 
-bool scanStringAndSetConfig(String content) {
+bool scanStringAndSetConfig(const char* content) {
+  char* modifiable_str = strdup(content);
   MatchState ms;
-  char ssidRegex[100] = "ssid=([A-Za-z0-9_@.\\/#&+-]*)";
-  char passwordRegex[100] = "password=([A-Za-z0-9_@.\\/#&+-]*)";
-  char buf[1024];
+  const char ssidRegex[] = "ssid=([A-Za-z0-9_@.\\/#&+-]*)";
+  const char passwordRegex[] = "password=([A-Za-z0-9_@.\\/#&+-]*)";
 
-  content.toCharArray(buf, sizeof(buf));
-  ms.Target(buf);
+  ms.Target(modifiable_str);
 
   if (ms.Match(ssidRegex) == REGEXP_NOMATCH)
   {
@@ -461,21 +456,24 @@ bool scanStringAndSetConfig(String content) {
     
     return false;
   }
-  char ssid_char[100];
-  ms.GetCapture(ssid_char, 0);
+
+  strncpy(wifiSsid, ms.GetCapture(modifiable_str, 0), sizeof(wifiSsid));
+  wifiSsid[sizeof(wifiSsid) - 1] = '\0';  // Ensure null-termination
 
   if (ms.Match(passwordRegex) == REGEXP_NOMATCH)
   {
-    if (LOG) Serial.println("No match for password");
+    if (LOG) {
+      Serial.println("No match for password");
+      Serial.println(content);
+    }
+    
     return false;
   }
 
-  char password_char[100];
-  ms.GetCapture(password_char, 0);
+  strncpy(wifiPassword, ms.GetCapture(modifiable_str, 0), sizeof(wifiPassword));
+  wifiPassword[sizeof(wifiPassword) - 1] = '\0';  // Ensure null-termination
 
-  wifiSsid = ssid_char;
-  wifiPassword = password_char;
-
+  free(modifiable_str);
   return true;
 }
 
