@@ -33,6 +33,6 @@ void readStringFromEEPROM(int addrOffset, char* output, size_t maxLen);
 bool getWifiConfigFromSD();
 bool scanStringAndSetConfig(const char* content);
 void readFile(fs::FS &fs, const char *path, String *contents);
-void openCircuit(unsigned int circuit, String message);
-void closeCircuit(unsigned int circuit, String message);
+void openCircuit(unsigned int circuit);
+void closeCircuit(unsigned int circuit);
 bool isIdle();
