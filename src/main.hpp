@@ -1,17 +1,11 @@
+#pragma once
+
 #include "ESPAsyncWebServer.h"
 #include "Wire.h"
 #include "Regexp.h"
 #include "SPI.h"
 #include "config.hpp"
 #include <functional>
-
-#if LOG == 1
-  #define LOG_PRINT(x) Serial.print(x)
-  #define LOG_PRINTLN(x) Serial.println(x)
-#else
-  #define LOG_PRINT(x) 
-  #define LOG_PRINTLN(x) 
-#endif
 
 void setup();
 void loop();
@@ -24,7 +18,6 @@ void checkButton(int buttonPin, int &buttonState, const char *action, std::funct
 void checkButtons();
 bool getWifiConfigFromSD();
 bool scanStringAndSetConfig(const char* content);
-void readFile(fs::FS &fs, const char *path, String *contents);
 void openCircuit(unsigned int circuit);
 void closeCircuit(unsigned int circuit);
 bool isIdle();

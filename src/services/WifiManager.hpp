@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../config.hpp"
 #include <Arduino.h>
 #if defined(ESP8266)
     #include <ESP8266WiFi.h>
@@ -11,6 +12,7 @@ class WiFiManager {
 public:
     WiFiManager();
 
+    void begin();
     bool connect(const char* ssid, const char* password, uint32_t timeoutMs = 10000);
     void disconnect();
     bool isConnected();

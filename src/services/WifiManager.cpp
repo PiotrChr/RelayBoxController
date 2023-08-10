@@ -1,20 +1,26 @@
 #include "WifiManager.hpp"
 
-WiFiManager::WiFiManager() {
+WiFiManager::WiFiManager() {}
+
+void WiFiManager::begin() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
     delay(100);
+
+    LOG_PRINTLN("WiFiManager initialized");
 }
 
 bool WiFiManager::connect(const char* ssid, const char* password, uint32_t timeoutMs) {
+    LOG_PRINTLN("Connecting to WiFi...");        
     WiFi.begin(ssid, password);
 
     uint32_t startTime = millis();
-
     while (WiFi.status() != WL_CONNECTED) {
         if (millis() - startTime > timeoutMs) {
-            return false; // Connection timed out
+            LOG_PRINTLN("Connection timed out");
+            return false;
         }
+        LOG_PRINT('.');
         delay(100);
     }
 

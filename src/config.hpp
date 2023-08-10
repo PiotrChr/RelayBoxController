@@ -1,5 +1,15 @@
 #pragma once
+
+#define LOG 1
+
 #include <Arduino.h>
+#if LOG == 1
+  #define LOG_PRINT(x) Serial.print(x)
+  #define LOG_PRINTLN(x) Serial.println(x)
+#else
+  #define LOG_PRINT(x) 
+  #define LOG_PRINTLN(x) 
+#endif
 
 struct Relay
 {
@@ -14,9 +24,4 @@ struct Relay
 
 #define RELAY_COUNT 4
 
-Relay relays[RELAY_COUNT] = {
-    {"Circuit 1", 16, HIGH, 36, 33, HIGH, HIGH},
-    {"Circuit 2", 17, HIGH, 34, 39, HIGH, HIGH},
-    {"Circuit 3", 2, HIGH, 32, 35, HIGH, HIGH},
-    {"Circuit 4", 15, HIGH, 13, 4, HIGH, HIGH}
-};
+extern Relay relays[RELAY_COUNT];

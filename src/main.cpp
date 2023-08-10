@@ -1,5 +1,3 @@
-#define LOG 1
-
 #include "main.hpp"
 #include "services/EEPROMManager.hpp"
 #include "services/WifiManager.hpp"
@@ -18,11 +16,10 @@ const unsigned long buttonLockTime = 2000;
 #define OLED_RESET 4
 #define SCREEN_ADDRESS 0x3C //  See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 
-bool stateChanged = false;
+bool stateChanged = true;
 
 AsyncWebServer server(80);
 AsyncEventSource events("/events");
-
 
 const char *wifiConfigFile = "/wifi.txt";
 const char *wifiConfigFileReplacement = "/wifi_old.txt";
@@ -31,10 +28,12 @@ SDManager sdManager;
 #define EEPROM_SIZE 512
 EEPROMManager eepromManager(EEPROM_SIZE);
 
-IPAddress localIp;
 char wifiSsid[50] = "";
 char wifiPassword[50] = "";
-unsigned const long wifiConnectionTimeout = 20000;
+char restoredWifiSsid[50];
+char restoredWifiPassword[50];
+
+unsigned const long wifiConnectionTimeout = 30000;
 unsigned const long wifiCheckInterval = 100000;
 unsigned long wifiCheckLock = 0;
 WiFiManager wifiManager;
@@ -45,6 +44,13 @@ int displayUpdateTimeout = 15000;
 
 TaskManager tasks;
 
+Relay relays[RELAY_COUNT] = {
+    {"Circuit 1", 16, HIGH, 36, 33, HIGH, HIGH},
+    {"Circuit 2", 17, HIGH, 34, 39, HIGH, HIGH},
+    {"Circuit 3", 2, HIGH, 32, 35, HIGH, HIGH},
+    {"Circuit 4", 15, HIGH, 13, 4, HIGH, HIGH}
+};
+
 void setup()
 {
   setupSerial();
@@ -54,36 +60,68 @@ void setup()
 
   setupButtons();
   
+  eepromManager.begin();
   displayManager.displayStatus("Restoring from EEPROM...");
-  
-  eepromManager.restoreWifiCredentials(wifiSsid, sizeof(wifiSsid), wifiPassword, sizeof(wifiPassword));
+  eepromManager.restoreWifiCredentials(
+    restoredWifiSsid,
+    sizeof(restoredWifiSsid),
+    restoredWifiPassword,
+    sizeof(restoredWifiPassword)
+  );
+
   delay(1000);
 
   if (getWifiConfigFromSD())
   {
+    LOG_PRINTLN("Found wifi config on SD");
     displayManager.displayStatus("Found connection details on SD...");
   }
+
   delay(1000);
+
+  LOG_PRINT("SSID check: ");
+  LOG_PRINTLN(wifiSsid);
+  LOG_PRINT("Password check: ");
+  LOG_PRINTLN(wifiPassword);
+
+  if ((wifiSsid[0] != '\0' && restoredWifiSsid != wifiSsid)
+      || (wifiPassword[0] != '\0' && restoredWifiPassword != wifiPassword))
+  {
+      displayManager.displayStatus("Saving to EEPROM...");
+      LOG_PRINTLN("New wifi credentials detected. Saving to EEPROM...");
+      eepromManager.saveWifiCredentials(wifiSsid, wifiPassword);
+      delay(500);
+  } else
+  {
+    LOG_PRINTLN("No new wifi credentials detected. Restoring from EEPROM...");
+    LOG_PRINT("Restored SSID: ");
+    LOG_PRINTLN(restoredWifiSsid);
+    LOG_PRINT("Restored PASSWORD: ");
+    LOG_PRINTLN(restoredWifiPassword);
+
+    strcat(wifiSsid, restoredWifiSsid);
+    strcat(wifiPassword, restoredWifiPassword);
+  }
 
   if (wifiSsid[0] != '\0')
   {
-    displayManager.displayStatus("Saving to EEPROM...");
-    eepromManager.saveWifiCredentials(wifiSsid, wifiPassword);
-
-    delay(500);
-
     char wifiText[200] = "Connecting to: ";
     strcat(wifiText, wifiSsid);
     displayManager.displayStatus(wifiText);
-
+    LOG_PRINT(wifiText);
+    wifiManager.begin();
     wifiManager.connect(wifiSsid, wifiPassword, wifiConnectionTimeout);
-
+    
     delay(1000);
   }
 
   if (wifiManager.isConnected())
   {
+    LOG_PRINT("IP: ");
+    LOG_PRINTLN(wifiManager.getLocalIP());
+
     displayManager.displayStatus("Setting up HTTP server...");
+    LOG_PRINTLN("Setting up HTTP server...");
     setupServer();
     delay(1000);
   }
@@ -250,13 +288,13 @@ bool getWifiConfigFromSD()
   String fileContents;
   if (!sdManager.readFileContents(wifiConfigFile, fileContents))
   {
-    LOG_PRINTLN("Failed to read from SD card.");
-      
+    LOG_PRINTLN("Failed to read from SD card.");   
     return false;
   }
 
   if (fileContents.length() == 0)
   {
+    LOG_PRINTLN("File is empty.");
     return false;
   }
 
@@ -296,13 +334,19 @@ bool scanStringAndSetConfig(const char *content)
   strncpy(wifiPassword, ms.GetCapture(modifiable_str, 0), sizeof(wifiPassword));
   wifiPassword[sizeof(wifiPassword) - 1] = '\0';
 
+  LOG_PRINTLN("Wifi SSID: ");
+  LOG_PRINTLN(wifiSsid);
+  
+  LOG_PRINTLN("Wifi Password: ");
+  LOG_PRINTLN(wifiPassword);
+
   free(modifiable_str);
   return true;
 }
 
 void loop()
 {
-  if (!wifiManager.isConnected()) {
+  if (!wifiManager.isConnected() && wifiSsid[0] != '\0') {
     if (wifiCheckLock == 0) {
       wifiCheckLock = millis();
     } else if (millis() - wifiCheckLock > wifiCheckInterval) {
